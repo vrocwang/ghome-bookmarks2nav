@@ -1,0 +1,7 @@
+# build output
+/bookmarks-to-nav
+/dist/
+
+# A real export is personal data and does not belong here.
+/bookmarks*.html
+/nav*.yaml
