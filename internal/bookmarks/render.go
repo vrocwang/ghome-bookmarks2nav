@@ -2,6 +2,7 @@ package bookmarks
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -34,10 +35,12 @@ type Options struct {
 
 // Report describes what a conversion did, so the tool can say it out loud.
 type Report struct {
-	Groups      int
-	Links       int
-	Duplicates  int
-	Truncated   int
+	Groups     int
+	Links      int
+	Duplicates int
+	Truncated  int
+	// Named counts entries that had no title and were labelled by host.
+	Named       int
 	Unsupported []Skipped
 }
 
@@ -124,6 +127,14 @@ func Render(root Folder, opts Options) ([]byte, Report, error) {
 		for _, l := range g.links {
 			rep.Links++
 			name := l.Name
+			if strings.TrimSpace(name) == "" {
+				// ghome requires a name, and a blank one makes it refuse the
+				// whole document. Firefox exports allow an untitled bookmark,
+				// so fall back to the host -- there is always something to call
+				// it by.
+				name = hostLabel(l.URL)
+				rep.Named++
+			}
 			if opts.MaxName > 0 {
 				if r := []rune(name); len(r) > opts.MaxName {
 					name = strings.TrimSpace(string(r[:opts.MaxName])) + "…"
@@ -201,6 +212,16 @@ func collect(root Folder, opts Options) ([]group, []Skipped) {
 		return groups[i].name < groups[j].name
 	})
 	return groups, skipped
+}
+
+// hostLabel names an untitled bookmark after its host, which is at least
+// recognisable in a list of links.
+func hostLabel(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return "未命名链接"
+	}
+	return u.Hostname()
 }
 
 // groupName turns a folder path into a readable group name.

@@ -9,6 +9,9 @@
 这是一个独立工具：**不依赖 ghome，也不 import 它**。它自带一份 ghome schema 的镜像
 （`internal/navcheck`），用来保证生成的文档 ghome 会接受。
 
+输入支持两种格式，**自动识别**（不用加参数）：Chrome / Edge / Safari 导出的 Netscape HTML，
+以及 Firefox 导出的 JSON。
+
 ## 安装
 
 ```bash
@@ -43,10 +46,19 @@ cat bookmarks.html | ./bookmarks-to-nav -           # 读标准输入
 
 ## 从浏览器导出
 
-- **Chrome / Edge**：打开 `chrome://bookmarks` → 右上角 ⋮ → 导出书签
-- **Firefox**：`Ctrl/Cmd+Shift+O` → 导入和备份 → 导出书签到 JSON…
-  ⚠️ 本工具只认 **HTML**（Netscape 格式）。Firefox 的"备份"给的是 `.json`，不是这个格式
-- **Safari**：文件 → 导出 → 书签
+| 浏览器 | 怎么导出 | 格式 |
+| --- | --- | --- |
+| **Chrome / Edge** | `chrome://bookmarks` → 右上角 ⋮ → 导出书签 | Netscape HTML |
+| **Safari** | 文件 → 导出 → 书签 | Netscape HTML |
+| **Firefox** | `Ctrl/Cmd+Shift+O` 打开书签管理 → 导入和备份 → **导出书签到 JSON…** | Firefox places JSON |
+
+> **Firefox 没有 HTML 导出。** 它的界面里只有"备份"（给 `.json`）和"导出书签到 JSON"，
+> 两者都是 places JSON——**这个工具直接读**。想要 HTML 得装扩展（例如
+> [Export Bookmarks](https://addons.mozilla.org/firefox/addon/export-bookmarks/)），
+> 但没必要。
+
+两种格式都是机器写的，工具都认；读到哪种会在汇总里说明（`read <file> as firefox json`），
+认错时也会说清是按哪种格式读的、该从哪里导出。
 
 ## 它做了哪些判断
 
@@ -58,8 +70,10 @@ cat bookmarks.html | ./bookmarks-to-nav -           # 读标准输入
 | 只装文件夹、没有链接的目录 | 跳过 | 空卡片只是噪音 |
 | 同一个 URL 出现多次 | 只留第一次 | 一条链接一个图标、一个探测目标 |
 | 标题过长（YouTube 那种 200 字） | 按 `--max-name` 截断加省略号 | 导航条目显示不下；按**字符**截断，不会切坏中文 |
+| **书签没有标题**（Firefox 允许） | 用 URL 的**主机名**当名字 | ghome 要求每个链接有 `name`，空名字会让它**整份拒绝**；汇总里会报"n untitled bookmarks named after their host" |
 | 文件夹名里的 `&`（`K8S&amp;&amp;Docker`） | 解实体后按需加引号 | 页面上该显示 `&&` 而不是 `&amp;` |
 | 嵌套很深（实测 4 层） | 默认分组名写完整路径 `书签栏 / 学习 / K8S&&Docker / Train` | 扁平化之后 `Docker`、`Learn` 这些同名文件夹就分不出来了；要短名用 `--leaf` |
+| Firefox 的顶级容器（`menu`/`toolbar`/`unfiled`） | 映射成 **书签菜单 / 书签工具栏 / 其他书签** | 导出里存的是内部标识（`"title": "menu"`），直接当分组名没法看 |
 
 **生成后会先按 ghome 的规则校验一遍**：解析不了、有结构性错误、或者没有任何私密条目，就直接
 失败，不写出一个页面会拒收的文件——那种文件比没有更糟，页面会继续服务上一版，你还得去读
@@ -92,8 +106,8 @@ real  0m1.0s
 ## 结构
 
 ```text
-main.go                  CLI（flag 解析、汇总输出、写文件）
-internal/bookmarks/      Netscape 书签格式的解析 + nav.yaml 渲染
+main.go                  CLI（flag 解析、格式识别、汇总输出、写文件）
+internal/bookmarks/      Netscape HTML 与 Firefox places JSON 的解析 + nav.yaml 渲染
 internal/navcheck/       ghome schema 的镜像：生成物按 ghome 的规则校验
 ```
 

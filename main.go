@@ -13,9 +13,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -99,12 +101,36 @@ Examples:
 		in = f
 	}
 
-	root, err := bookmarks.Parse(in)
+	// Two formats reach this tool: the Netscape HTML every browser exports, and
+	// the JSON that is now the only built-in Firefox option. They look nothing
+	// alike, so the format is detected and named in any error -- guessing wrong
+	// otherwise reads as "your file is broken".
+	sniff, err := io.ReadAll(io.LimitReader(in, 1<<20))
+	if err != nil {
+		return err
+	}
+	rest := io.MultiReader(bytes.NewReader(sniff), in)
+
+	var (
+		root   bookmarks.Folder
+		format string
+	)
+	if bookmarks.LooksLikeFirefoxJSON(sniff) {
+		format = "firefox json"
+		root, err = bookmarks.ParseFirefox(rest)
+	} else {
+		format = "netscape html"
+		root, err = bookmarks.Parse(rest)
+	}
 	if err != nil {
 		return err
 	}
 	if root.Count() == 0 {
-		return fmt.Errorf("%s: no bookmarks found (is this a bookmark export?)", src)
+		return fmt.Errorf("%s: no bookmarks found (read as %s; %s)", src, format,
+			"export as HTML from Chrome/Edge/Safari, or as JSON from Firefox")
+	}
+	if !*quiet {
+		fmt.Fprintf(stderr, "read %s as %s\n", src, format)
 	}
 
 	doc, rep, err := bookmarks.Render(root, bookmarks.Options{
@@ -150,6 +176,9 @@ Examples:
 		}
 		if rep.Truncated > 0 {
 			fmt.Fprintf(stderr, "; %d titles truncated", rep.Truncated)
+		}
+		if rep.Named > 0 {
+			fmt.Fprintf(stderr, "; %d untitled bookmarks named after their host", rep.Named)
 		}
 		fmt.Fprintln(stderr)
 		for _, s := range rep.Unsupported {
