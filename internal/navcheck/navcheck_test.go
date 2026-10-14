@@ -1,6 +1,7 @@
 package navcheck
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,8 +80,10 @@ func TestValidateNeverEchoesValues(t *testing.T) {
 	}
 }
 
-// An empty group is dropped by ghome, not fatal, so it is a warning.
-func TestValidateWarnsAboutAnEmptyGroup(t *testing.T) {
+// An empty group is dropped by ghome SILENTLY: no refusal, and no warning
+// either. This mirror only reports what ghome itself would report, so it must
+// not invent one.
+func TestValidateDropsAnEmptyGroupSilently(t *testing.T) {
 	res, err := Validate([]byte(`groups:
   - name: kept
     links:
@@ -94,7 +97,80 @@ func TestValidateWarnsAboutAnEmptyGroup(t *testing.T) {
 	if res.Groups != 1 || res.Links != 1 {
 		t.Errorf("Result = %+v, want the empty group left out of the counts", res)
 	}
-	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "empty") {
-		t.Errorf("Warnings = %v, want one about the empty group", res.Warnings)
+	if len(res.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none: ghome drops empty groups quietly", res.Warnings)
+	}
+}
+
+// ghome trims a url before validating it, so surrounding whitespace loads
+// there. Refusing it here would reject a document ghome would have served.
+func TestValidateTrimsURLsLikeGhome(t *testing.T) {
+	doc := func(url string) string {
+		return "groups:\n  - name: g\n    links:\n      - {name: a, url: " + strconv.Quote(url) + "}\n"
+	}
+	for _, url := range []string{
+		" https://a.example.com",
+		"https://a.example.com ",
+		"\thttps://a.example.com\t",
+		"\u00a0https://a.example.com",
+	} {
+		if _, err := Validate([]byte(doc(url))); err != nil {
+			t.Errorf("url %q: refused (%v), want it accepted", url, err)
+		}
+	}
+	// A genuinely broken url is still refused, whitespace or not.
+	if _, err := Validate([]byte(doc(" https://a.example.com/%zz "))); err == nil {
+		t.Error("an unparseable url was accepted")
+	}
+	// The engine url gets the same treatment.
+	engine := "search:\n  engines:\n    - {name: e, url: " + strconv.Quote(" https://e.example.com/?q={q} ") +
+		"}\ngroups:\n  - name: g\n    links:\n      - {name: a, url: \"https://a.example.com\"}\n"
+	if _, err := Validate([]byte(engine)); err != nil {
+		t.Errorf("padded engine url refused: %v", err)
+	}
+}
+
+// A key this mirror does not model is never decoded, so yaml.v3 never reports
+// the type error ghome turns into a refusal. These are the ones the writer could
+// plausibly grow into; a type error in any of them must fail the document.
+func TestValidateRefusesTypeErrorsInEveryModelledField(t *testing.T) {
+	good := "groups:\n  - name: g\n    links:\n      - {name: a, url: \"https://a.example.com\"}\n"
+	cases := map[string]string{
+		"style.radius":         "style:\n  radius: x\n",
+		"style.accent":         "style:\n  accent: [x]\n",
+		"style as scalar":      "style: 42\n",
+		"status.interval":      "status:\n  interval: soon\n",
+		"status.interval list": "status:\n  interval: [x]\n",
+		"status.concurrency":   "status:\n  concurrency: \"abc\"\n",
+		"group.color":          "groups:\n  - name: g\n    color: [x]\n",
+		"group.icon":           "groups:\n  - name: g\n    icon: [x]\n",
+		"group.description":    "groups:\n  - name: g\n    description: [x]\n",
+		"link.icon":            "link-icon",
+		"link.tags":            "link-tags",
+		"link.hotkey":          "link-hotkey",
+		"link.newTab":          "link-newtab",
+	}
+	linkField := map[string]string{
+		"link-icon":   "icon: [x]",
+		"link-tags":   "tags: x",
+		"link-hotkey": "hotkey: [x]",
+		"link-newtab": "newTab: maybe",
+	}
+	for name, prefix := range cases {
+		doc := prefix
+		if body, ok := linkField[prefix]; ok {
+			doc = "groups:\n  - name: g\n    links:\n      - {name: a, url: \"https://a.example.com\", " + body + "}\n"
+		} else if strings.HasPrefix(doc, "groups:") {
+			doc += ""
+		}
+		if strings.Contains(doc, "groups:") && !strings.Contains(doc, "links:") {
+			doc += "    links:\n      - {name: a, url: \"https://a.example.com\"}\n"
+		}
+		if _, err := Validate([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted, want it refused (ghome fails the document over this)\n%s", name, doc)
+		}
+	}
+	if _, err := Validate([]byte(good)); err != nil {
+		t.Errorf("the plain document was refused: %v", err)
 	}
 }

@@ -158,6 +158,10 @@ func collect(root Folder, opts Options) ([]group, []Skipped) {
 		skipped []Skipped
 	)
 
+	// keep decides whether a link is usable. The caller trims first and keeps
+	// the trimmed value, so the string validated here is the string written:
+	// ghome trims a url before checking it, and validating one string while
+	// emitting another is how a page ends up with an href nobody checked.
 	keep := func(l Link) bool {
 		if l.URL == "" {
 			skipped = append(skipped, Skipped{Name: l.Name, Reason: "no href"})
@@ -174,6 +178,7 @@ func collect(root Folder, opts Options) ([]group, []Skipped) {
 		var links []Link
 		root.Walk(func(f *Folder) {
 			for _, l := range f.Links {
+				l.URL = strings.TrimSpace(l.URL)
 				if keep(l) {
 					links = append(links, l)
 				}
@@ -190,6 +195,7 @@ func collect(root Folder, opts Options) ([]group, []Skipped) {
 	walk = func(f Folder, path []string) {
 		var links []Link
 		for _, l := range f.Links {
+			l.URL = strings.TrimSpace(l.URL)
 			if keep(l) {
 				links = append(links, l)
 			}
@@ -243,24 +249,36 @@ func groupName(path []string, leaf bool) string {
 
 // unsupported reports why ghome would refuse this URL, or "" when it is fine.
 //
-// It mirrors nav.checkURL: a scheme is required and the four schemes that can
-// execute content are banned. A browser export routinely contains chrome://,
-// file:// and javascript: bookmarks, and one of those in the document makes
-// ghome reject the whole config -- so they are reported rather than written.
+// It answers the same question ghome's own check does -- does this url have a
+// scheme, is it one of the four dangerous ones, and does http(s) have a host --
+// and it answers it the same way: url.Parse, not string prefixes. A prefix test
+// gets http(s) wrong for every url whose whitespace TrimSpace removes but
+// url.Parse does not (a trailing NBSP, for one), and the two mirrors then
+// disagree about a url ghome accepts.
+//
+// Since the tool trims the url before calling this, the value checked here is
+// the value written, and navcheck checks it again on the way out.
 func unsupported(raw string) string {
-	lower := strings.ToLower(strings.TrimSpace(raw))
-	if lower == "" {
+	// Trim first, the way ghome does: TrimSpace removes Unicode whitespace that
+	// url.Parse does not (a trailing NBSP, say), so parsing the raw value would
+	// refuse a url ghome accepts.
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return "empty url"
 	}
-	scheme, _, found := strings.Cut(lower, ":")
-	if !found || scheme == "" {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "not a parseable url"
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "" {
 		return "no scheme (ghome needs one, like https://)"
 	}
 	switch scheme {
 	case "javascript", "data", "vbscript", "blob":
 		return "scheme " + scheme + " is refused by ghome"
 	}
-	if (scheme == "http" || scheme == "https") && !strings.HasPrefix(lower, scheme+"://") {
+	if (scheme == "http" || scheme == "https") && u.Host == "" {
 		return "http(s) url without a host"
 	}
 	return ""

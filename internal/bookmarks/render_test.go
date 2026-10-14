@@ -149,3 +149,57 @@ func TestYAMLStringSurvivesTheParser(t *testing.T) {
 		t.Errorf("link name round-tripped to %q", got)
 	}
 }
+
+// ghome trims a url before checking it, so an href with padding loads there.
+// The tool has to do the same -- and write the TRIMMED value, so the string it
+// validated is the string the page serves.
+func TestRenderTrimsURLsAndWritesTheTrimmedValue(t *testing.T) {
+	folder := Folder{Folders: []*Folder{{
+		Name: "组",
+		Links: []Link{
+			{Name: "前导空格", URL: " https://padded.example.com/"},
+			{Name: "尾随制表符", URL: "https://tabbed.example.com/\t"},
+			{Name: "尾随 NBSP", URL: "https://nbsp.example.com/\u00a0"},
+			{Name: "正常", URL: "https://plain.example.com/"},
+		},
+	}}}
+
+	doc, rep, err := Render(folder, Options{})
+
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	// All four survive: none of them is refused, and none is skipped.
+	if len(rep.Unsupported) != 0 {
+		t.Errorf("Unsupported = %+v, want none", rep.Unsupported)
+	}
+	if rep.Links != 4 {
+		t.Errorf("Links = %d, want 4", rep.Links)
+	}
+	parsed, err := navcheck.Decode(doc)
+	if err != nil {
+		t.Fatalf("document does not parse: %v\n%s", err, doc)
+	}
+	urls := map[string]bool{}
+	for _, g := range parsed.Groups {
+		for _, l := range g.Links {
+			urls[l.URL] = true
+			if l.URL != strings.TrimSpace(l.URL) {
+				t.Errorf("url written with padding: %q", l.URL)
+			}
+		}
+	}
+	for _, want := range []string{
+		"https://padded.example.com/",
+		"https://tabbed.example.com/",
+		"https://nbsp.example.com/",
+		"https://plain.example.com/",
+	} {
+		if !urls[want] {
+			t.Errorf("url %q missing; have %v", want, urls)
+		}
+	}
+	if _, err := navcheck.Validate(doc); err != nil {
+		t.Fatalf("ghome would refuse it: %v\n%s", err, doc)
+	}
+}
