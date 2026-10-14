@@ -9,8 +9,8 @@
 这是一个独立工具：**不依赖 ghome，也不 import 它**。它自带一份 ghome schema 的镜像
 （`internal/navcheck`），用来保证生成的文档 ghome 会接受。
 
-输入支持两种格式，**自动识别**（不用加参数）：Chrome / Edge / Safari 导出的 Netscape HTML，
-以及 Firefox 导出的 JSON。
+输入支持两种格式，**自动识别**（不用加参数）：Netscape HTML（Chrome / Edge / Safari，以及
+Firefox 的 HTML 导出）和 Firefox places JSON。
 
 ## 安装
 
@@ -48,17 +48,15 @@ cat bookmarks.html | ./bookmarks-to-nav -           # 读标准输入
 
 | 浏览器 | 怎么导出 | 格式 |
 | --- | --- | --- |
-| **Chrome / Edge** | `chrome://bookmarks` → 右上角 ⋮ → 导出书签 | Netscape HTML |
-| **Safari** | 文件 → 导出 → 书签 | Netscape HTML |
-| **Firefox** | `Ctrl/Cmd+Shift+O` 打开书签管理 → 导入和备份 → **导出书签到 JSON…** | Firefox places JSON |
+| **Firefox** | 书签管理（`Ctrl/Cmd+Shift+O`）→ 导入和备份 → 导出 | HTML，或 JSON |
+| **Chrome / Edge** | `chrome://bookmarks` → 右上角 ⋮ → 导出书签 | HTML |
+| **Safari** | 文件 → 导出 → 书签 | HTML |
 
-> **Firefox 没有 HTML 导出。** 它的界面里只有"备份"（给 `.json`）和"导出书签到 JSON"，
-> 两者都是 places JSON——**这个工具直接读**。想要 HTML 得装扩展（例如
-> [Export Bookmarks](https://addons.mozilla.org/firefox/addon/export-bookmarks/)），
-> 但没必要。
+**两种格式工具都读**（Netscape HTML 与 Firefox places JSON），无需指定；读到哪种会在汇总里
+说明（`read <file> as firefox json`）。认错时也会说清是按哪种格式读的、该从哪里导出。
 
-两种格式都是机器写的，工具都认；读到哪种会在汇总里说明（`read <file> as firefox json`），
-认错时也会说清是按哪种格式读的、该从哪里导出。
+> Firefox 不同版本这个子菜单里出现的项目不完全一样（HTML 导出、JSON 导出、以及"备份"），
+> 以你实际看到的为准——**有 HTML 就用 HTML，只有 JSON 就用 JSON，两个都能喂**。
 
 ## 它做了哪些判断
 

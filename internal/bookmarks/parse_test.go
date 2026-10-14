@@ -121,3 +121,48 @@ func TestParseRejectsGarbage(t *testing.T) {
 		t.Errorf("Count() = %d, want 0", root.Count())
 	}
 }
+
+// Firefox's HTML export writes the same Netscape shape as Chrome's, with two
+// attributes of its own (ICON_URI and a comma separated TAGS) and the same
+// freedom to leave a bookmark untitled. It has to go through the same path.
+const firefoxHTML = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="1600000000" LAST_MODIFIED="1600000001" PERSONAL_TOOLBAR_FOLDER="true">书签工具栏</H3>
+    <DL><p>
+        <DT><A HREF="https://www.mozilla.org/" ADD_DATE="1600000000" LAST_MODIFIED="1600000001" ICON_URI="data:image/png;base64,AAAA" TAGS="mozilla,浏览器">Mozilla 首页</A>
+        <DT><H3 ADD_DATE="1600000000">工具</H3>
+        <DL><p>
+            <DT><A HREF="http://nas:8080/" ADD_DATE="1600000000" TAGS="homelab">内网 NAS</A>
+        </DL><p>
+        <DT><A HREF="https://untitled.example.com/" ADD_DATE="1600000000"></A>
+    </DL><p>
+</DL><p>
+`
+
+func TestParseFirefoxHTMLExport(t *testing.T) {
+	root, err := Parse(strings.NewReader(firefoxHTML))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got := root.Count(); got != 3 {
+		t.Fatalf("Count() = %d, want 3", got)
+	}
+	toolbar := root.Folders[0]
+	if toolbar.Name != "书签工具栏" {
+		t.Errorf("folder = %q", toolbar.Name)
+	}
+	// The ICON_URI and TAGS attributes are ignored, and the title is read as-is.
+	if toolbar.Links[0].Name != "Mozilla 首页" || toolbar.Links[0].URL != "https://www.mozilla.org/" {
+		t.Errorf("first link = %+v", toolbar.Links[0])
+	}
+	// An empty <A></A> leaves the name empty; the renderer names it after the host.
+	if toolbar.Links[1].URL != "https://untitled.example.com/" || toolbar.Links[1].Name != "" {
+		t.Errorf("untitled link = %+v", toolbar.Links[1])
+	}
+	if len(toolbar.Folders) != 1 || toolbar.Folders[0].Links[0].URL != "http://nas:8080/" {
+		t.Errorf("nested folder = %+v", toolbar.Folders)
+	}
+}
