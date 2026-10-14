@@ -95,6 +95,11 @@ func Render(root Folder, opts Options) ([]byte, Report, error) {
 	groups = kept
 
 	if len(groups) == 0 {
+		if len(skipped) > 0 {
+			// Everything was dropped for a concrete reason; say so instead of
+			// the generic "no bookmarks found", which reads like a bad file.
+			return nil, rep, fmt.Errorf("all %d bookmarks were skipped: %s", len(skipped), skipped[0].Reason)
+		}
 		return nil, rep, ErrNoBookmarks
 	}
 
@@ -308,6 +313,11 @@ func yamlString(s string) string {
 			b.WriteString(`\r`)
 		default:
 			if r < 0x20 || r == 0x7f {
+				// Escaped, not dropped: dropping can leave the value empty,
+				// and ghome refuses a document over an empty name -- one
+				// control character in one title would fail the whole export.
+				// YAML double-quoted scalars define \xNN.
+				fmt.Fprintf(&b, `\x%02x`, r)
 				continue
 			}
 			b.WriteRune(r)

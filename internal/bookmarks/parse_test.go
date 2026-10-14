@@ -1,6 +1,7 @@
 package bookmarks
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -164,5 +165,87 @@ func TestParseFirefoxHTMLExport(t *testing.T) {
 	}
 	if len(toolbar.Folders) != 1 || toolbar.Folders[0].Links[0].URL != "http://nas:8080/" {
 		t.Errorf("nested folder = %+v", toolbar.Folders)
+	}
+}
+
+// html.Tokenizer already decodes entities, so a second pass rewrites titles the
+// user saved: a bookmark genuinely titled "A&amp;B" is written by the browser as
+// "A&amp;amp;B", and unescaping twice turns it into "A&B".
+func TestEntitiesAreDecodedExactlyOnce(t *testing.T) {
+	doc := `<DL><p>
+    <DT><H3>A&amp;amp;B</H3>
+    <DL><p>
+        <DT><A HREF="https://a.example.com/">A&amp;amp;B &amp;lt;tag&amp;gt; &amp;#39;quote&amp;#39;</A>
+        <DT><A HREF="https://b.example.com/">plain &amp; simple</A>
+    </DL><p>
+</DL><p>
+`
+	root, err := Parse(strings.NewReader(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolbar := root.Folders[0]
+	if toolbar.Name != "A&amp;B" {
+		t.Errorf("folder name = %q, want %q", toolbar.Name, "A&amp;B")
+	}
+	if got := toolbar.Links[0].Name; got != `A&amp;B &lt;tag&gt; &#39;quote&#39;` {
+		t.Errorf("link name = %q, want the entities the browser wrote", got)
+	}
+	// One level of decoding still happens: "&amp;" becomes "&".
+	if got := toolbar.Links[1].Name; got != "plain & simple" {
+		t.Errorf("link name = %q, want %q", got, "plain & simple")
+	}
+}
+
+// A truncated export can end inside an <A>; its bookmark is still one the user
+// saved.
+func TestParseKeepsABookmarkLeftOpenAtEOF(t *testing.T) {
+	doc := `<DL><p><DT><A HREF="https://first.example.com/">first</A>` +
+		`<DT><A HREF="https://last.example.com/">last`
+	root, err := Parse(strings.NewReader(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := root.Count(); got != 2 {
+		t.Fatalf("Count() = %d, want 2", got)
+	}
+	if l := root.Links[1]; l.URL != "https://last.example.com/" || l.Name != "last" {
+		t.Errorf("the last link = %+v, want it kept", l)
+	}
+}
+
+// Depth is cheap in a file and expensive downstream: the tree operations
+// recurse and a group name is the whole path. Past the cap the level is folded
+// into its ancestor, the links survive, and the caller is told.
+func TestParseCapsAbsurdNesting(t *testing.T) {
+	const depth = 5000
+	var b strings.Builder
+	b.WriteString("<DL><p>")
+	for i := 0; i < depth; i++ {
+		fmt.Fprintf(&b, "<DT><H3>f%d</H3><DL><p>", i)
+	}
+	b.WriteString(`<DT><A HREF="https://deep.example.com/">deep</A>`)
+	for i := 0; i < depth; i++ {
+		b.WriteString("</DL><p>")
+	}
+	b.WriteString("</DL><p>")
+
+	root, err := Parse(strings.NewReader(b.String()))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !root.DepthCapped {
+		t.Error("DepthCapped = false, want the cap reported")
+	}
+	if got := root.Depth(); got > maxDepth+2 {
+		t.Errorf("Depth() = %d, want it bounded near the cap %d", got, maxDepth)
+	}
+	// The bookmark is not thrown away; it lands in the deepest folder that fits.
+	if got := root.Count(); got != 1 {
+		t.Errorf("Count() = %d, want the deep bookmark kept", got)
+	}
+	// And the recursive operations terminate instead of overflowing the stack.
+	if got := root.Count(); got != 1 {
+		t.Errorf("Count() = %d", got)
 	}
 }

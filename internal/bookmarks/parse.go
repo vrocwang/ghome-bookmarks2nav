@@ -15,7 +15,6 @@ package bookmarks
 import (
 	"errors"
 	"fmt"
-	htmlstd "html"
 	"io"
 	"regexp"
 	"strings"
@@ -41,6 +40,10 @@ type Folder struct {
 	Links []Link
 	// Folders are its subfolders, in export order.
 	Folders []*Folder
+	// DepthCapped reports that the export nested folders deeper than maxDepth,
+	// so the deepest levels were folded into their ancestor. It is set on the
+	// root.
+	DepthCapped bool
 }
 
 // Depth reports how deep the tree goes below this folder.
@@ -74,13 +77,29 @@ func (f *Folder) Walk(fn func(*Folder)) {
 // ErrNoBookmarks means the file parsed but held nothing to convert.
 var ErrNoBookmarks = errors.New("no bookmarks found")
 
+// maxDepth bounds how deep the folder tree may go.
+//
+// It exists because depth is cheap for a file and expensive for everything
+// downstream: the tree operations are recursive, and a group name is the whole
+// folder path, so an export nested a million levels deep would overflow the
+// stack and, before that, produce a document far larger than its input. A real
+// export is under ten levels; sixty is generous. Deeper folders are folded into
+// the deepest level that fits rather than being thrown away, and the caller is
+// told so it can say it out loud.
+const maxDepth = 60
+
 // Parse reads a Netscape bookmark file.
+func Parse(r io.Reader) (Folder, error) {
+	return parse(r)
+}
+
+// ParseWithReport reads a Netscape bookmark file.
 //
 // It is deliberately tolerant: an export is machine-written and only ever read
 // back by the browser that wrote it, so stray attributes, unknown tags and
 // folders that only hold other folders are all normal. What it will not do is
 // invent structure: a link belongs to the folder it appears in.
-func Parse(r io.Reader) (Folder, error) {
+func parse(r io.Reader) (Folder, error) {
 	z := html.NewTokenizer(r)
 
 	root := &Folder{}
@@ -116,6 +135,9 @@ func Parse(r io.Reader) (Folder, error) {
 			if err := z.Err(); err != nil && !errors.Is(err, io.EOF) {
 				return Folder{}, fmt.Errorf("read bookmarks: %w", err)
 			}
+			// A truncated export can end inside an <A>; its bookmark is still
+			// one the user saved, so keep it rather than dropping the last one.
+			closeLink()
 			return *root, nil
 
 		case html.StartTagToken, html.SelfClosingTagToken:
@@ -126,6 +148,14 @@ func Parse(r io.Reader) (Folder, error) {
 				// a folder the browser left unnamed) continues the open folder
 				// rather than opening another level.
 				if !havePending && len(stack) > 0 {
+					continue
+				}
+				// Past the cap the level is not opened: links keep landing in
+				// the deepest folder that fits, so a pathological file costs
+				// bounded work instead of a stack overflow.
+				if len(stack) > maxDepth {
+					root.DepthCapped = true
+					pending, havePending = "", false
 					continue
 				}
 				child := &Folder{Name: pending}
@@ -193,13 +223,13 @@ func readTitle(z *html.Tokenizer) string {
 
 var whitespace = regexp.MustCompile(`\s+`)
 
-// cleanText decodes entities and normalises whitespace.
+// cleanText normalises whitespace and drops the byte-order mark.
 //
-// Entities matter beyond tidiness: a literal "&" left in a folder name is fine
-// for the YAML writer, which quotes as needed, but a raw "&amp;" would end up on
-// the page as "&amp;".
+// It deliberately does NOT decode HTML entities: html.Tokenizer.Text() hands
+// back text that is already unescaped, so a second pass would turn a bookmark
+// genuinely titled "A&amp;B" (which the browser writes as "A&amp;amp;B") into
+// "A&B" -- silently rewriting what the user saved.
 func cleanText(s string) string {
-	s = htmlstd.UnescapeString(s)
 	s = strings.ReplaceAll(s, "\ufeff", "")
 	if !utf8.ValidString(s) {
 		s = strings.ToValidUTF8(s, "")

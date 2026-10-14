@@ -203,3 +203,31 @@ func TestRenderTrimsURLsAndWritesTheTrimmedValue(t *testing.T) {
 		t.Fatalf("ghome would refuse it: %v\n%s", err, doc)
 	}
 }
+
+// Dropping a control character can leave a name empty, and ghome refuses the
+// whole document over an empty name -- so one such title must not fail an
+// export of 500 good bookmarks.
+func TestRenderEscapesControlCharactersInsteadOfDroppingThem(t *testing.T) {
+	folder := Folder{Folders: []*Folder{{Name: "a\x07b", Links: []Link{
+		{Name: "\x07", URL: "https://ctrl.example.com/"},
+		{Name: "normal", URL: "https://ok.example.com/"},
+	}}}}
+
+	doc, _, err := Render(folder, Options{})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if _, err := navcheck.Validate(doc); err != nil {
+		t.Fatalf("ghome would refuse it: %v\n%s", err, doc)
+	}
+	parsed, err := navcheck.Decode(doc)
+	if err != nil {
+		t.Fatalf("document does not parse: %v\n%s", err, doc)
+	}
+	if got := parsed.Groups[0].Name; got != "a\x07b" {
+		t.Errorf("group name = %q, want the control character preserved", got)
+	}
+	if got := parsed.Groups[0].Links[0].Name; got != "\x07" {
+		t.Errorf("link name = %q, want the control character preserved", got)
+	}
+}

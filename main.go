@@ -143,6 +143,16 @@ Examples:
 		return err
 	}
 
+	// The skip report is diagnostic, not chatter: it says which links were
+	// dropped and why, so it stays even under --quiet.
+	for _, s := range rep.Unsupported {
+		fmt.Fprintf(stderr, "skipped: %s (%s)\n", firstNonEmpty(s.Name, s.URL), s.Reason)
+	}
+	if len(rep.Unsupported) > 0 {
+		fmt.Fprintln(stderr, "note: those are reported rather than written; one of them in the"+
+			" document would make ghome refuse it")
+	}
+
 	if !*quiet {
 		fmt.Fprintf(stderr, "wrote %d links in %d groups (from %d bookmarks, %d folders)",
 			rep.Links, rep.Groups, root.Count(), countFolders(root))
@@ -155,14 +165,10 @@ Examples:
 		if rep.Named > 0 {
 			fmt.Fprintf(stderr, "; %d untitled bookmarks named after their host", rep.Named)
 		}
+		if root.DepthCapped {
+			fmt.Fprintf(stderr, "; folders nested deeper than %d were flattened", 60)
+		}
 		fmt.Fprintln(stderr)
-		for _, s := range rep.Unsupported {
-			fmt.Fprintf(stderr, "skipped: %s (%s)\n", firstNonEmpty(s.Name, s.URL), s.Reason)
-		}
-		if len(rep.Unsupported) > 0 {
-			fmt.Fprintln(stderr, "note: those are reported rather than written; one of them in the"+
-				" document would make ghome refuse it")
-		}
 	}
 	return nil
 }
