@@ -1,6 +1,7 @@
 package bookmarks
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,14 @@ type firefoxNode struct {
 	// few kilobytes and is dropped like the ICON attribute in an HTML export.
 	IconURI string `json:"iconUri"`
 }
+
+// mozLz4Magic starts a compressed Firefox backup ("bookmarks-….jsonlz4"). It is
+// an LZ4 frame with a 4-byte uncompressed length, and it is NOT plain JSON --
+// recognising it is what lets the tool say so instead of "no bookmarks found".
+var mozLz4Magic = []byte("mozLz40\x00")
+
+// IsCompressedBackup reports whether data is a compressed Firefox backup.
+func IsCompressedBackup(data []byte) bool { return bytes.HasPrefix(data, mozLz4Magic) }
 
 // LooksLikeFirefoxJSON reports whether data is a places export rather than a
 // Netscape HTML one. Detection is worth having because the two formats look

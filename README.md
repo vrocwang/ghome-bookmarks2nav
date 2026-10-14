@@ -48,15 +48,22 @@ cat bookmarks.html | ./bookmarks-to-nav -           # 读标准输入
 
 | 浏览器 | 怎么导出 | 格式 |
 | --- | --- | --- |
-| **Firefox** | 书签管理（`Ctrl/Cmd+Shift+O`）→ 导入和备份 → 导出 | HTML，或 JSON |
+| **Firefox** | 书签管理（`Ctrl/Cmd+Shift+O`）→ 导入和备份 → **导出书签到 HTML…** | Netscape HTML |
 | **Chrome / Edge** | `chrome://bookmarks` → 右上角 ⋮ → 导出书签 | HTML |
 | **Safari** | 文件 → 导出 → 书签 | HTML |
 
-**两种格式工具都读**（Netscape HTML 与 Firefox places JSON），无需指定；读到哪种会在汇总里
-说明（`read <file> as firefox json`）。认错时也会说清是按哪种格式读的、该从哪里导出。
+**要的是"导出"，不是"备份"。** 两者用途不同：
 
-> Firefox 不同版本这个子菜单里出现的项目不完全一样（HTML 导出、JSON 导出、以及"备份"），
-> 以你实际看到的为准——**有 HTML 就用 HTML，只有 JSON 就用 JSON，两个都能喂**。
+| | 用途 | 格式 |
+| --- | --- | --- |
+| **导出**（Export） | 给别的浏览器 / 别的工具用，也就是本工具 | HTML（Netscape 格式） |
+| **备份**（Backup） | 只在 Firefox 内部还原，会覆盖现有书签 | `.jsonlz4`（mozLz4 压缩） |
+
+喂错了不会静默失败：`.jsonlz4` 会被识别出来并提示改用导出（或给出解压命令）。那个格式是
+mozLz4 压缩的、且只为还原而生，本工具不去解它。
+
+工具读 Netscape HTML 与 **未压缩的** places JSON（Firefox 若提供"导出书签到 JSON"，或你自己
+解压备份得到的 `.json`），格式自动识别，无需指定；读到哪种会在汇总里说明（`read <file> as firefox json`）。
 
 ## 它做了哪些判断
 

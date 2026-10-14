@@ -135,3 +135,18 @@ func TestParseFirefoxRejectsAnEmptyExport(t *testing.T) {
 		t.Error("garbage was accepted")
 	}
 }
+
+// Firefox's "Backup…" writes mozLz4-compressed data. It is not an export and not
+// plain JSON, so it has to be recognised and refused by name: reading it as HTML
+// and reporting "no bookmarks found" sends the user looking for a corrupt file.
+func TestIsCompressedBackup(t *testing.T) {
+	if !IsCompressedBackup([]byte("mozLz40\x00\x00\x10\x00\x00rest")) {
+		t.Error("a mozLz4 header was not recognised")
+	}
+	if IsCompressedBackup([]byte(firefoxJSON)) {
+		t.Error("a places export was mistaken for a compressed backup")
+	}
+	if IsCompressedBackup([]byte(`<!DOCTYPE NETSCAPE-Bookmark-file-1>`)) {
+		t.Error("an HTML export was mistaken for a compressed backup")
+	}
+}

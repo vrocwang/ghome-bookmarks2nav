@@ -115,6 +115,12 @@ Examples:
 		root   bookmarks.Folder
 		format string
 	)
+	if bookmarks.IsCompressedBackup(sniff) {
+		return fmt.Errorf("%s: this is a compressed Firefox backup (.jsonlz4), not an export;\n"+
+			"    Firefox backups are for restoring inside Firefox only. Use\n"+
+			"    书签管理 → 导入和备份 → 导出书签到 HTML… (or 导出书签到 JSON…), or\n"+
+			"    decompress it first: python3 -c \"import lz4.frame,sys;sys.stdout.buffer.write(lz4.frame.decompress(open('%s','rb').read()[8:]))\" > bookmarks.json", src, src)
+	}
 	if bookmarks.LooksLikeFirefoxJSON(sniff) {
 		format = "firefox json"
 		root, err = bookmarks.ParseFirefox(rest)
