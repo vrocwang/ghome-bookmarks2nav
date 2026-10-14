@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vrocwang/bookmarks-to-nav/internal/navcheck"
+	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
 )
 
 const exportHTML = `<!DOCTYPE NETSCAPE-Bookmark-file-1>

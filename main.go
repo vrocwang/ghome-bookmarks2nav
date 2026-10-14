@@ -19,8 +19,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vrocwang/bookmarks-to-nav/internal/bookmarks"
-	"github.com/vrocwang/bookmarks-to-nav/internal/navcheck"
+	"github.com/vrocwang/ghome-bookmarks2nav/internal/bookmarks"
+	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
 )
 
 // version is stamped at build time:

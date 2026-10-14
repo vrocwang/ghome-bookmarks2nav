@@ -1,4 +1,4 @@
-module github.com/vrocwang/bookmarks-to-nav
+module github.com/vrocwang/ghome-bookmarks2nav
 
 go 1.26.5
 

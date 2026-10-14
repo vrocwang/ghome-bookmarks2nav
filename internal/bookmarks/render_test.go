@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vrocwang/bookmarks-to-nav/internal/navcheck"
+	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
 )
 
 func renderSample(t *testing.T, opts Options) (string, Report) {
