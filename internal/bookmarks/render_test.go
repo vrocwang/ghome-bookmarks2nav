@@ -4,8 +4,42 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
+	"gopkg.in/yaml.v3"
 )
+
+// document is the shape the tests read back: enough to check what the writer
+// produced, without a second copy of ghome's schema.
+type document struct {
+	Site struct {
+		Title    string `yaml:"title"`
+		Subtitle string `yaml:"subtitle"`
+	} `yaml:"site"`
+	Search struct {
+		Enabled *bool `yaml:"enabled"`
+	} `yaml:"search"`
+	Groups []struct {
+		Name    string `yaml:"name"`
+		Private bool   `yaml:"private"`
+		Links   []struct {
+			Name    string `yaml:"name"`
+			URL     string `yaml:"url"`
+			Private bool   `yaml:"private"`
+		} `yaml:"links"`
+	} `yaml:"groups"`
+}
+
+// decode reads a document back the way a consumer would.
+func decode(t *testing.T, doc []byte) document {
+	t.Helper()
+	var d document
+	if err := yaml.Unmarshal(doc, &d); err != nil {
+		t.Fatalf("the generated document does not parse: %v\n%s", err, doc)
+	}
+	if len(d.Groups) == 0 {
+		t.Fatalf("the generated document has no groups\n%s", doc)
+	}
+	return d
+}
 
 func renderSample(t *testing.T, opts Options) (string, Report) {
 	t.Helper()
@@ -28,19 +62,31 @@ func TestRenderProducesAPrivateDocumentGhomeAccepts(t *testing.T) {
 	} {
 		doc, _ := renderSample(t, opts)
 
-		res, err := navcheck.Validate([]byte(doc))
-		if err != nil {
-			t.Fatalf("%+v: ghome rejects the document: %v\n%s", opts, err, doc)
+		d := decode(t, []byte(doc))
+		var private, links int
+		for _, g := range d.Groups {
+			if strings.TrimSpace(g.Name) == "" {
+				t.Errorf("%+v: a group has no name", opts)
+			}
+			if len(g.Links) == 0 {
+				t.Errorf("%+v: group %q has no links", opts, g.Name)
+			}
+			for _, l := range g.Links {
+				links++
+				if strings.TrimSpace(l.Name) == "" || strings.TrimSpace(l.URL) == "" {
+					t.Errorf("%+v: incomplete entry %+v", opts, l)
+				}
+				if l.Private || g.Private {
+					private++
+				}
+			}
 		}
-		if len(res.Warnings) != 0 {
-			t.Errorf("%+v: warnings = %v, want none", opts, res.Warnings)
-		}
-		if res.Private == 0 {
-			t.Errorf("%+v: Private = 0, want every entry private", opts)
+		if private != links || private == 0 {
+			t.Errorf("%+v: private = %d of %d links, want all of them", opts, private, links)
 		}
 		// 8 bookmarks: one duplicate and one javascript: url are dropped.
-		if res.Links != 5 {
-			t.Errorf("%+v: Links = %d, want 5", opts, res.Links)
+		if links != 5 {
+			t.Errorf("%+v: links = %d, want 5", opts, links)
 		}
 	}
 }
@@ -138,10 +184,7 @@ func TestYAMLStringSurvivesTheParser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc2, err := navcheck.Decode(doc)
-	if err != nil {
-		t.Fatalf("the document does not parse: %v\n%s", err, doc)
-	}
+	doc2 := decode(t, doc)
 	if got := doc2.Groups[0].Name; got != `a "b": c \ d & e` {
 		t.Errorf("group name round-tripped to %q", got)
 	}
@@ -176,10 +219,7 @@ func TestRenderTrimsURLsAndWritesTheTrimmedValue(t *testing.T) {
 	if rep.Links != 4 {
 		t.Errorf("Links = %d, want 4", rep.Links)
 	}
-	parsed, err := navcheck.Decode(doc)
-	if err != nil {
-		t.Fatalf("document does not parse: %v\n%s", err, doc)
-	}
+	parsed := decode(t, doc)
 	urls := map[string]bool{}
 	for _, g := range parsed.Groups {
 		for _, l := range g.Links {
@@ -199,9 +239,6 @@ func TestRenderTrimsURLsAndWritesTheTrimmedValue(t *testing.T) {
 			t.Errorf("url %q missing; have %v", want, urls)
 		}
 	}
-	if _, err := navcheck.Validate(doc); err != nil {
-		t.Fatalf("ghome would refuse it: %v\n%s", err, doc)
-	}
 }
 
 // Dropping a control character can leave a name empty, and ghome refuses the
@@ -217,17 +254,44 @@ func TestRenderEscapesControlCharactersInsteadOfDroppingThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if _, err := navcheck.Validate(doc); err != nil {
-		t.Fatalf("ghome would refuse it: %v\n%s", err, doc)
-	}
-	parsed, err := navcheck.Decode(doc)
-	if err != nil {
-		t.Fatalf("document does not parse: %v\n%s", err, doc)
-	}
+	parsed := decode(t, doc)
 	if got := parsed.Groups[0].Name; got != "a\x07b" {
 		t.Errorf("group name = %q, want the control character preserved", got)
 	}
 	if got := parsed.Groups[0].Links[0].Name; got != "\x07" {
 		t.Errorf("link name = %q, want the control character preserved", got)
+	}
+}
+
+// verify is a net under the writer, so it has to actually catch the shapes it
+// claims to: a document that does not parse, no groups, a group with no links,
+// and a link missing a name or a url.
+func TestVerifyCatchesTheShapesGhomeRefuses(t *testing.T) {
+	cases := map[string]struct {
+		doc     string
+		wantErr string
+	}{
+		"not yaml":            {"groups: [", "does not parse"},
+		"no groups":           {"site:\n  title: x\n", "no groups"},
+		"empty groups list":   {"groups: []\n", "no groups"},
+		"group without name":  {"groups:\n  - links:\n      - {name: a, url: \"https://a.example.com\"}\n", "has no name"},
+		"group without links": {"groups:\n  - name: g\n    links: []\n", "has no links"},
+		"link without name":   {"groups:\n  - name: g\n    links:\n      - {name: \"\", url: \"https://a.example.com\"}\n", "has no name"},
+		"link without url":    {"groups:\n  - name: g\n    links:\n      - {name: a, url: \"\"}\n", "has no url"},
+	}
+	for name, tc := range cases {
+		err := verify([]byte(tc.doc))
+		if err == nil {
+			t.Errorf("%s: verify() accepted it, want an error mentioning %q", name, tc.wantErr)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: verify() = %q, want it to mention %q", name, err, tc.wantErr)
+		}
+	}
+
+	good := "groups:\n  - name: g\n    links:\n      - {name: a, url: \"https://a.example.com\"}\n"
+	if err := verify([]byte(good)); err != nil {
+		t.Errorf("verify() refused a good document: %v", err)
 	}
 }

@@ -2,12 +2,12 @@ package main
 
 import (
 	"os"
+
+	"gopkg.in/yaml.v3"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
 )
 
 const exportHTML = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -67,19 +67,46 @@ func TestCLIConvertsAnExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The whole point: ghome has to accept it, and everything in it is private.
-	res, err := navcheck.Validate(doc)
-	if err != nil {
-		t.Fatalf("the generated document would not load in ghome: %v\n%s", err, doc)
+	// Read the document back the way a consumer would: the CLI's own check is
+	// inside Render, so what is verified here is the shape a user receives.
+	var parsed struct {
+		Site struct {
+			Title string `yaml:"title"`
+		} `yaml:"site"`
+		Links  int `yaml:"-"`
+		Search struct {
+			Enabled *bool `yaml:"enabled"`
+		} `yaml:"search"`
+		Groups []struct {
+			Name    string `yaml:"name"`
+			Private bool   `yaml:"private"`
+			Links   []struct {
+				Name string `yaml:"name"`
+				URL  string `yaml:"url"`
+			} `yaml:"links"`
+		} `yaml:"groups"`
 	}
-	if len(res.Warnings) != 0 {
-		t.Errorf("warnings = %v, want none", res.Warnings)
+	if err := yaml.Unmarshal(doc, &parsed); err != nil {
+		t.Fatalf("the generated document does not parse: %v\n%s", err, doc)
 	}
-	if res.Private != res.Links || res.Private == 0 {
-		t.Errorf("private entries = %d of %d links, want all of them", res.Private, res.Links)
+	if len(parsed.Groups) == 0 {
+		t.Fatalf("no groups in the document\n%s", doc)
 	}
-	parsed, err := navcheck.Decode(doc)
-	if err != nil {
-		t.Fatal(err)
+	var private, links int
+	for _, g := range parsed.Groups {
+		if !g.Private {
+			t.Errorf("group %q is not private", g.Name)
+		}
+		for _, l := range g.Links {
+			links++
+			if l.Name == "" || l.URL == "" {
+				t.Errorf("incomplete entry %+v", l)
+			}
+		}
+		private += len(g.Links)
+	}
+	if private != links || private == 0 {
+		t.Errorf("private = %d of %d links, want all of them", private, links)
 	}
 	// --leaf: the group is named after the innermost folder.
 	for _, g := range parsed.Groups {

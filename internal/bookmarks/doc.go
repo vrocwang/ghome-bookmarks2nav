@@ -7,7 +7,8 @@
 // <A> may carry a base64 data-URI icon of a few kilobytes (ghome resolves icons
 // itself, so those are dropped) and that its text is HTML-escaped.
 //
-// This is a standalone tool: it knows the shape of a nav.yaml document through
-// internal/navcheck rather than importing ghome, so it builds and ships on its
-// own.
+// This is a standalone tool: it does not import ghome and carries no copy of
+// its schema. It knows the shape it has to produce, keeps to it while writing,
+// and checks the result against the three requirements that matter (a document
+// that parses, groups that hold links, entries with a name and a url).
 package bookmarks

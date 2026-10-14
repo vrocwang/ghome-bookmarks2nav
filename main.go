@@ -1,9 +1,8 @@
 // Command bookmarks-to-nav turns a browser's exported bookmarks into a ghome
 // nav.yaml where every entry is private.
 //
-// It is a standalone tool: it does not import ghome, and its idea of a valid
-// nav.yaml lives in internal/navcheck. Nothing has to be installed but this
-// binary.
+// It is a standalone tool: it does not import ghome and carries no copy of its
+// schema. Nothing has to be installed but this binary.
 //
 // Usage:
 //
@@ -20,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/vrocwang/ghome-bookmarks2nav/internal/bookmarks"
-	"github.com/vrocwang/ghome-bookmarks2nav/internal/navcheck"
 )
 
 // version is stamped at build time:
@@ -121,18 +119,10 @@ Examples:
 		return err
 	}
 
-	// The gate: ghome has to accept it. A document it refuses is worse than no
-	// document, because the page keeps serving the previous revision and the
-	// operator has to read lastError to find out why.
-	res, err := navcheck.Validate(doc)
-	if err != nil {
-		return fmt.Errorf("the generated document would not load in ghome: %w", err)
-	}
-	for _, w := range res.Warnings {
-		fmt.Fprintln(stderr, "note: ghome would warn: "+w)
-	}
-	if res.Private == 0 {
-		return errors.New("the generated document has no private entries, which is the whole point")
+	// Render checks the shape before returning, so by here the document is the
+	// one ghome expects. What is left to verify is this tool's own promise.
+	if rep.Links == 0 {
+		return fmt.Errorf("%s: nothing to write: every bookmark was skipped", src)
 	}
 
 	if *out == "" {

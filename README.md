@@ -6,8 +6,8 @@
 书签是个人的东西——内网地址、带 token 的入口、随手存的临时链接——所以生成的文档里每个分组
 都带 `private: true`，页面只把它交给"能读配置仓"的人。
 
-这是一个独立工具：**不依赖 ghome，也不 import 它**。它自带一份 ghome schema 的镜像
-（`internal/navcheck`），用来保证生成的文档 ghome 会接受。
+这是一个独立工具：**不依赖 ghome，也不 import 它**，也不复制它的 schema。它只保证自己写出的
+文档是 ghome 要的形状——能解析、每个分组都有链接、每条链接都有 `name` 和 `url`。
 
 输入是浏览器"导出书签"写出的那个 HTML 文件（Netscape 格式），Chrome / Edge / Firefox /
 Safari 都一样。
@@ -99,19 +99,19 @@ real  0m1.0s
 
 ```text
 main.go                  CLI（flag 解析、汇总输出、写文件）
-internal/bookmarks/      Netscape 书签 HTML 的解析 + nav.yaml 渲染
-internal/navcheck/       ghome schema 的镜像：生成物按 ghome 的规则校验
+internal/bookmarks/      Netscape 书签 HTML 的解析 + nav.yaml 渲染 + 输出不变式检查
 ```
 
-`internal/navcheck` 是刻意的一小份镜像：它覆盖 ghome 会**整份拒绝**的那些规则——必需字段、
-URL 协议黑名单、http(s) 缺 host、以及每个它建模的字段的类型错（类型错在 ghome 是致命的，
-而颜色/热键/数值范围那类是告警，不影响能否加载）。
+`internal/bookmarks` 在返回文档前会自己检查三条不变式：
 
-它的边界要说清：**它只镜像 ghome 的致命规则里、当前写入器会产出的那些字段**。ghome 的
-`style.*`、`status.*` 等字段的类型错同样致命，这里也建模了（读者可核对 `Document` 的字段
-列表）。ghome 那边若新增字段或改规则，这里要跟着改——它没有防止漂移的机制，这一点是有意
-取舍：镜像 ghome 的整份解析器（约 1100 行）意味着把那个项目的代码搬进这个工具，而 ghome
-仓目前没有 LICENSE 文件，我不替使用者做许可决定。
+1. 文档能被 YAML 解析出 `groups`
+2. 每个分组都有名字、且至少有一条链接（ghome 会为"整份文档一个链接都没有"拒收）
+3. 每条链接的 `name` 与 `url` 都非空
 
-生成物写完前仍会过这道闸，所以它保证的是"**今天这个写入器写出的文档，ghome 会接受**"，
-而不是"任何 nav.yaml 的判据都与 ghome 一致"。
+这三条是**这个工具对自己输出的要求**，不是 ghome 规则的复述：哪些链接可服务（协议黑名单、
+http(s) 要有 host）在采集阶段就决定了，空名字在这里之前已经用主机名兜底。所以没有第二份
+ghome schema 需要同步，也就不存在"镜像漂移"。
+
+代价说清：如果 ghome 将来新增了必需字段或改了加载规则，这个工具**不会知道**——它会照旧写出
+文档，由 push 之后的 `/healthz` 报出来。这是有意的取舍：为一个"把书签转成导航配置"的工具
+维护 ghome 的判据副本不值得。

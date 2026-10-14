@@ -1,10 +1,13 @@
 package bookmarks
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Options control how a tree becomes a nav.yaml document.
@@ -153,7 +156,59 @@ func Render(root Folder, opts Options) ([]byte, Report, error) {
 			b.WriteString("}\n")
 		}
 	}
-	return []byte(b.String()), rep, nil
+	doc := []byte(b.String())
+	if err := verify(doc); err != nil {
+		// The writer is supposed to make this impossible; if it ever happens,
+		// failing is better than writing a document that stops the page from
+		// updating and leaves the operator to read /healthz for the reason.
+		return nil, rep, fmt.Errorf("internal error: the generated document is not the shape ghome expects: %w", err)
+	}
+	return doc, rep, nil
+}
+
+// verify checks the invariants ghome requires of the document this tool writes.
+//
+// It deliberately does not re-check ghome's rules -- there is no second copy of
+// its schema here. The writer already decides which links are servable (one
+// scheme rule, applied while collecting) and gives every entry a name. What is
+// left is the shape: a document that parses, groups that hold at least one link,
+// and entries with the two keys ghome requires. This is a net under the writer,
+// not a validator for hand-written configs.
+func verify(doc []byte) error {
+	var parsed struct {
+		Groups []struct {
+			Name  string `yaml:"name"`
+			Links []struct {
+				Name string `yaml:"name"`
+				URL  string `yaml:"url"`
+			} `yaml:"links"`
+		} `yaml:"groups"`
+	}
+	if err := yaml.Unmarshal(doc, &parsed); err != nil {
+		return fmt.Errorf("it does not parse: %w", err)
+	}
+	if len(parsed.Groups) == 0 {
+		return errors.New("it has no groups")
+	}
+	for gi, g := range parsed.Groups {
+		if strings.TrimSpace(g.Name) == "" {
+			return fmt.Errorf("groups[%d] has no name", gi)
+		}
+		if len(g.Links) == 0 {
+			// ghome refuses a document where no group holds a link at all,
+			// and a group with no links is a card with nothing in it.
+			return fmt.Errorf("groups[%d] (%s) has no links", gi, g.Name)
+		}
+		for li, l := range g.Links {
+			if strings.TrimSpace(l.Name) == "" {
+				return fmt.Errorf("groups[%d].links[%d] has no name", gi, li)
+			}
+			if strings.TrimSpace(l.URL) == "" {
+				return fmt.Errorf("groups[%d].links[%d] (%s) has no url", gi, li, l.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // collect walks the tree, producing one group per folder that holds links.
@@ -261,8 +316,8 @@ func groupName(path []string, leaf bool) string {
 // url.Parse does not (a trailing NBSP, for one), and the two mirrors then
 // disagree about a url ghome accepts.
 //
-// Since the tool trims the url before calling this, the value checked here is
-// the value written, and navcheck checks it again on the way out.
+// Since the caller trims the url before calling this, the value checked here is
+// the value written, and verify() checks the shape on the way out.
 func unsupported(raw string) string {
 	// Trim first, the way ghome does: TrimSpace removes Unicode whitespace that
 	// url.Parse does not (a trailing NBSP, say), so parsing the raw value would
