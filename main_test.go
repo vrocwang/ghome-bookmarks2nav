@@ -100,58 +100,6 @@ func TestCLIConvertsAnExport(t *testing.T) {
 	}
 }
 
-// Firefox has no HTML export in its UI any more, so its JSON is the format most
-// Firefox users will hand the tool.
-const firefoxExport = `{"guid":"root________","title":"","typeCode":2,"root":"placesRoot","children":[
- {"guid":"menu________","title":"menu","typeCode":2,"root":"bookmarksMenuFolder","children":[
-  {"guid":"a","title":"Mozilla","typeCode":1,"uri":"https://www.mozilla.org/","iconUri":"data:image/png;base64,AAAA"},
-  {"guid":"b","title":"","typeCode":1,"uri":"https://untitled.example.com/"}]},
- {"guid":"toolbar_____","title":"toolbar","typeCode":2,"root":"toolbarFolder","children":[
-  {"guid":"c","title":"NAS","typeCode":1,"uri":"http://nas:8080/"}]}]}`
-
-func TestCLIConvertsAFirefoxJSONExport(t *testing.T) {
-	bin := build(t)
-	dir := t.TempDir()
-	in := filepath.Join(dir, "bookmarks.json")
-	if err := os.WriteFile(in, []byte(firefoxExport), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	stdout := &strings.Builder{}
-	cmd := exec.Command(bin, "--search", in)
-	cmd.Stdout = stdout
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("run: %v\n%s", err, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "firefox json") {
-		t.Errorf("stderr = %q, want it to say which format it read", stderr.String())
-	}
-
-	doc := stdout.String()
-	res, err := navcheck.Validate([]byte(doc))
-	if err != nil {
-		t.Fatalf("the generated document would not load in ghome: %v\n%s", err, doc)
-	}
-	if res.Warnings != nil {
-		t.Errorf("warnings = %v, want none", res.Warnings)
-	}
-	if res.Private != res.Links || res.Private == 0 {
-		t.Errorf("private = %d of %d links", res.Private, res.Links)
-	}
-	// The roots are named the way the Bookmarks menu shows them, and an
-	// untitled bookmark is named after its host rather than left blank.
-	for _, want := range []string{"书签菜单", "书签工具栏", "untitled.example.com"} {
-		if !strings.Contains(doc, want) {
-			t.Errorf("document is missing %q:\n%s", want, doc)
-		}
-	}
-	if !strings.Contains(stderr.String(), "untitled bookmarks named after their host") {
-		t.Errorf("stderr = %q, want the summary to mention the naming fallback", stderr.String())
-	}
-}
-
 func TestCLIReadsStdinAndFailsOnGarbage(t *testing.T) {
 	bin := build(t)
 

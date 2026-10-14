@@ -9,8 +9,8 @@
 这是一个独立工具：**不依赖 ghome，也不 import 它**。它自带一份 ghome schema 的镜像
 （`internal/navcheck`），用来保证生成的文档 ghome 会接受。
 
-输入支持两种格式，**自动识别**（不用加参数）：Netscape HTML（Chrome / Edge / Safari，以及
-Firefox 的 HTML 导出）和 Firefox places JSON。
+输入是浏览器"导出书签"写出的那个 HTML 文件（Netscape 格式），Chrome / Edge / Firefox /
+Safari 都一样。
 
 ## 安装
 
@@ -46,24 +46,9 @@ cat bookmarks.html | ./bookmarks-to-nav -           # 读标准输入
 
 ## 从浏览器导出
 
-| 浏览器 | 怎么导出 | 格式 |
-| --- | --- | --- |
-| **Firefox** | 书签管理（`Ctrl/Cmd+Shift+O`）→ 导入和备份 → **导出书签到 HTML…** | Netscape HTML |
-| **Chrome / Edge** | `chrome://bookmarks` → 右上角 ⋮ → 导出书签 | HTML |
-| **Safari** | 文件 → 导出 → 书签 | HTML |
-
-**要的是"导出"，不是"备份"。** 两者用途不同：
-
-| | 用途 | 格式 |
-| --- | --- | --- |
-| **导出**（Export） | 给别的浏览器 / 别的工具用，也就是本工具 | HTML（Netscape 格式） |
-| **备份**（Backup） | 只在 Firefox 内部还原，会覆盖现有书签 | `.jsonlz4`（mozLz4 压缩） |
-
-喂错了不会静默失败：`.jsonlz4` 会被识别出来并提示改用导出（或给出解压命令）。那个格式是
-mozLz4 压缩的、且只为还原而生，本工具不去解它。
-
-工具读 Netscape HTML 与 **未压缩的** places JSON（Firefox 若提供"导出书签到 JSON"，或你自己
-解压备份得到的 `.json`），格式自动识别，无需指定；读到哪种会在汇总里说明（`read <file> as firefox json`）。
+浏览器里找"导出书签"（Firefox 在书签管理 → 导入和备份 → 导出书签到 HTML…；Chrome / Edge 是
+`chrome://bookmarks` → ⋮ → 导出书签；Safari 是文件 → 导出 → 书签），拿到一个 `.html` 文件，
+直接喂给工具。
 
 ## 它做了哪些判断
 
@@ -75,10 +60,9 @@ mozLz4 压缩的、且只为还原而生，本工具不去解它。
 | 只装文件夹、没有链接的目录 | 跳过 | 空卡片只是噪音 |
 | 同一个 URL 出现多次 | 只留第一次 | 一条链接一个图标、一个探测目标 |
 | 标题过长（YouTube 那种 200 字） | 按 `--max-name` 截断加省略号 | 导航条目显示不下；按**字符**截断，不会切坏中文 |
-| **书签没有标题**（Firefox 允许） | 用 URL 的**主机名**当名字 | ghome 要求每个链接有 `name`，空名字会让它**整份拒绝**；汇总里会报"n untitled bookmarks named after their host" |
+| **书签没有标题** | 用 URL 的**主机名**当名字 | ghome 要求每个链接有 `name`，空名字会让它**整份拒绝**；汇总里会报"n untitled bookmarks named after their host" |
 | 文件夹名里的 `&`（`K8S&amp;&amp;Docker`） | 解实体后按需加引号 | 页面上该显示 `&&` 而不是 `&amp;` |
 | 嵌套很深（实测 4 层） | 默认分组名写完整路径 `书签栏 / 学习 / K8S&&Docker / Train` | 扁平化之后 `Docker`、`Learn` 这些同名文件夹就分不出来了；要短名用 `--leaf` |
-| Firefox 的顶级容器（`menu`/`toolbar`/`unfiled`） | 映射成 **书签菜单 / 书签工具栏 / 其他书签** | 导出里存的是内部标识（`"title": "menu"`），直接当分组名没法看 |
 
 **生成后会先按 ghome 的规则校验一遍**：解析不了、有结构性错误、或者没有任何私密条目，就直接
 失败，不写出一个页面会拒收的文件——那种文件比没有更糟，页面会继续服务上一版，你还得去读
@@ -111,8 +95,8 @@ real  0m1.0s
 ## 结构
 
 ```text
-main.go                  CLI（flag 解析、格式识别、汇总输出、写文件）
-internal/bookmarks/      Netscape HTML 与 Firefox places JSON 的解析 + nav.yaml 渲染
+main.go                  CLI（flag 解析、汇总输出、写文件）
+internal/bookmarks/      Netscape 书签 HTML 的解析 + nav.yaml 渲染
 internal/navcheck/       ghome schema 的镜像：生成物按 ghome 的规则校验
 ```
 

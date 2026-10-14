@@ -13,11 +13,9 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -57,8 +55,9 @@ func run(args []string, stdout, stderr *os.File) error {
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "bookmarks-to-nav %s — turn a browser bookmark export into a private nav.yaml.\n\n", version)
 		fmt.Fprintf(stderr, "Usage:\n  bookmarks-to-nav [flags] <bookmarks.html>\n\n")
-		fmt.Fprintf(stderr, "The output is a nav.yaml for ghome whose entries are all private, and it is\n"+
-			"checked with the same rules ghome applies before it is written.\n\nFlags:\n")
+		fmt.Fprintf(stderr, "Input is the HTML file browsers write when you export bookmarks. The output is\n"+
+			"a nav.yaml for ghome whose entries are all private, checked with the same rules\n"+
+			"ghome applies before it is written.\n\nFlags:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(stderr, `
 Notes:
@@ -101,42 +100,12 @@ Examples:
 		in = f
 	}
 
-	// Two formats reach this tool: the Netscape HTML every browser exports, and
-	// the JSON that is now the only built-in Firefox option. They look nothing
-	// alike, so the format is detected and named in any error -- guessing wrong
-	// otherwise reads as "your file is broken".
-	sniff, err := io.ReadAll(io.LimitReader(in, 1<<20))
-	if err != nil {
-		return err
-	}
-	rest := io.MultiReader(bytes.NewReader(sniff), in)
-
-	var (
-		root   bookmarks.Folder
-		format string
-	)
-	if bookmarks.IsCompressedBackup(sniff) {
-		return fmt.Errorf("%s: this is a compressed Firefox backup (.jsonlz4), not an export;\n"+
-			"    Firefox backups are for restoring inside Firefox only. Use\n"+
-			"    书签管理 → 导入和备份 → 导出书签到 HTML… (or 导出书签到 JSON…), or\n"+
-			"    decompress it first: python3 -c \"import lz4.frame,sys;sys.stdout.buffer.write(lz4.frame.decompress(open('%s','rb').read()[8:]))\" > bookmarks.json", src, src)
-	}
-	if bookmarks.LooksLikeFirefoxJSON(sniff) {
-		format = "firefox json"
-		root, err = bookmarks.ParseFirefox(rest)
-	} else {
-		format = "netscape html"
-		root, err = bookmarks.Parse(rest)
-	}
+	root, err := bookmarks.Parse(in)
 	if err != nil {
 		return err
 	}
 	if root.Count() == 0 {
-		return fmt.Errorf("%s: no bookmarks found (read as %s; %s)", src, format,
-			"export as HTML from Chrome/Edge/Safari, or as JSON from Firefox")
-	}
-	if !*quiet {
-		fmt.Fprintf(stderr, "read %s as %s\n", src, format)
+		return fmt.Errorf("%s: no bookmarks found (expected a Netscape bookmark export, the HTML file browsers write)", src)
 	}
 
 	doc, rep, err := bookmarks.Render(root, bookmarks.Options{
